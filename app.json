@@ -9,7 +9,11 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.chrisblaise.poultry-invest",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +23,10 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "output": "static",
@@ -38,11 +45,27 @@
             "backgroundColor": "#000000"
           }
         }
+      ],
+      "@react-native-community/datetimepicker",
+      "expo-video",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Poultry Invest to access your photos so admins can publish farm operations to investors.",
+          "cameraPermission": "Allow Poultry Invest to use the camera to capture farm photos and video.",
+          "microphonePermission": "Allow Poultry Invest to record audio with farm videos."
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "acd9f0ff-1dca-42dd-9b5f-fc1ce04ac738"
+      }
     }
   }
 }

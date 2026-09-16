@@ -1,53 +1,54 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
- */
-
-import { Platform } from 'react-native';
-
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
-
-export const Colors = {
-  light: {
-    text: '#11181C',
-    background: '#fff',
-    tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
-  },
-  dark: {
-    text: '#ECEDEE',
-    background: '#151718',
-    tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
-    tabIconSelected: tintColorDark,
-  },
+export const colors = {
+  background: '#FAF8F4',      // warm off-white, not stark white
+  surface: '#FFFFFF',
+  border: '#E8E3D9',
+  text: '#1C1B19',
+  textMuted: '#7A756B',
+  textFaint: '#A39D8F',
+  primary: '#204B36',         // deep forest green — the one brand color
+  primaryMuted: '#EAF0EA',    // pale green for tints/backgrounds
+  gold: '#A9822F',            // used ONLY for figures/highlights, never decoration
+  danger: '#B3441F',
 };
 
-export const Fonts = Platform.select({
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: 'ui-monospace',
+export const spacing = {
+  xs: 4,
+  sm: 8,
+  md: 16,
+  lg: 24,
+  xl: 32,
+  xxl: 48,
+};
+
+export const radius = {
+  sm: 6,
+  md: 10,
+  lg: 16,
+  xl: 24,
+};
+
+export const fonts = {
+  display: 'Fraunces_600SemiBold',
+  displayMedium: 'Fraunces_500Medium',
+  body: 'Manrope_400Regular',
+  bodyMedium: 'Manrope_500Medium',
+  bodySemiBold: 'Manrope_600SemiBold',
+  bodyBold: 'Manrope_700Bold',
+};
+
+export const shadow = {
+  card: {
+    shadowColor: '#1C1B19',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
   },
-  default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
+  raised: {
+    shadowColor: '#1C1B19',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 6,
   },
-  web: {
-    sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-    serif: "Georgia, 'Times New Roman', serif",
-    rounded: "'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif",
-    mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-  },
-});
+};
