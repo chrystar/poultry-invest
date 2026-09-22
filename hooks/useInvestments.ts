@@ -20,6 +20,7 @@ export type InvestmentPackage = {
   duration: string;
   description: string;
   is_recommended: boolean;
+  is_active: boolean;
   sort_order: number;
 };
 
@@ -35,7 +36,8 @@ export function useInvestments() {
 
     const [typesRes, packagesRes] = await Promise.all([
       supabase.from('investment_types').select('*').order('sort_order'),
-      supabase.from('investment_packages').select('*').order('sort_order'),
+      // Only show packages currently open to new investors
+      supabase.from('investment_packages').select('*').eq('is_active', true).order('sort_order'),
     ]);
 
     if (typesRes.error) setError(typesRes.error.message);

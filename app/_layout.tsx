@@ -14,6 +14,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useCallback } from 'react';
 import { View } from 'react-native';
 import { AuthProvider } from '../context/AuthContext';
+import { usePushNotifications } from '../hooks/usePushNotifications';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -33,13 +34,15 @@ export default function RootLayout() {
 
   if (!fontsLoaded) return null;
 
-  return (
-    <AuthProvider>
+  function AppContent({ onLayout }: { onLayout: () => void }) {
+    usePushNotifications();
+    return (
       <View style={{ flex: 1 }} onLayout={onLayout}>
         <Stack screenOptions={{ headerShown: false }}>
           <Stack.Screen name="(auth)" />
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="investment/[packageId]" options={{ presentation: 'card' }} />
+          {/* ...keep all your other existing Stack.Screen entries exactly as they are */}
           <Stack.Screen name="investment-track" options={{ presentation: 'card' }} />
           <Stack.Screen name="equity" options={{ presentation: 'card' }} />
           <Stack.Screen name="reservation-confirmed" options={{ presentation: 'card' }} />
@@ -59,8 +62,17 @@ export default function RootLayout() {
           <Stack.Screen name="farm-media" options={{ presentation: 'card' }} />
           <Stack.Screen name="reset-password" options={{ presentation: 'card' }} />
           <Stack.Screen name="auth-callback" options={{ presentation: 'card' }} />
+          <Stack.Screen name="equity-campaign/[campaignId]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="equity-campaign/media" options={{ presentation: 'card' }} />    
+          <Stack.Screen name="verify-email" />
         </Stack>
       </View>
+    );
+  }
+
+  return (
+    <AuthProvider>
+      <AppContent onLayout={onLayout} />         
     </AuthProvider>
   );
 }

@@ -21,6 +21,8 @@ export default function PackageFormScreen() {
   const [duration, setDuration] = useState('');
   const [description, setDescription] = useState('');
   const [isRecommended, setIsRecommended] = useState(false);
+  const [isActive, setIsActive] = useState(true);
+  const [reservationCount, setReservationCount] = useState(0);
   const [loading, setLoading] = useState(isEditing);
   const [saving, setSaving] = useState(false);
 
@@ -48,7 +50,15 @@ export default function PackageFormScreen() {
         setDuration(data.duration);
         setDescription(data.description);
         setIsRecommended(data.is_recommended);
+        setIsActive(data.is_active ?? true);
       }
+
+      const { count } = await supabase
+        .from('investment_interests')
+        .select('id', { count: 'exact', head: true })
+        .eq('package_id', packageId);
+      setReservationCount(count ?? 0);
+
       setLoading(false);
     };
     load();
@@ -70,6 +80,7 @@ export default function PackageFormScreen() {
       duration,
       description,
       is_recommended: isRecommended,
+      is_active: isActive,
     };
 
     let error;
@@ -89,8 +100,17 @@ export default function PackageFormScreen() {
     router.back();
   };
 
-  const handleDelete = () => {
-    Alert.alert('Delete package', 'This cannot be undone. Continue?', [
+  const handleDelete = async () => {
+    if (reservationCount > 0) {
+      Alert.alert(
+        'This package has reservations',
+        `${reservationCount} investor${reservationCount > 1 ? 's have' : ' has'} already reserved this package. It can't be deleted — that would break their records. Turn off "Visible to investors" above instead, then save, to stop new reservations while keeping existing ones intact.`,
+        [{ text: 'Got it' }]
+      );
+      return;
+    }
+
+    Alert.alert('Delete package', 'This package has no reservations and can be safely deleted. This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -126,6 +146,16 @@ export default function PackageFormScreen() {
           <Text style={styles.eyebrow}>{isEditing ? 'EDIT' : 'NEW'}</Text>
           <Text style={styles.title}>{isEditing ? 'Edit package' : 'New package'}</Text>
 
+          {isEditing && reservationCount > 0 && (
+            <View style={styles.reservedNotice}>
+              <Feather name="info" size={14} color={colors.primary} />
+              <Text style={styles.reservedNoticeText}>
+                {reservationCount} investor{reservationCount > 1 ? 's have' : ' has'} reserved this package.
+                Their amounts and terms are locked in and won't change even if you edit this package.
+              </Text>
+            </View>
+          )}
+
           <Text style={styles.fieldLabel}>Investment type</Text>
           <View style={styles.typeRow}>
             {types.map((t) => (
@@ -156,6 +186,19 @@ export default function PackageFormScreen() {
             />
           </View>
 
+          <View style={styles.switchRow}>
+            <View style={{ flex: 1, marginRight: spacing.md }}>
+              <Text style={styles.switchLabel}>Visible to investors</Text>
+              <Text style={styles.switchHint}>Turn off to stop new reservations without deleting past ones</Text>
+            </View>
+            <Switch
+              value={isActive}
+              onValueChange={setIsActive}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor="#fff"
+            />
+          </View>
+
           <PrimaryButton label={isEditing ? 'Save changes' : 'Create package'} onPress={handleSave} loading={saving} />
 
           {isEditing && (
@@ -174,15 +217,18 @@ const styles = StyleSheet.create({
   container: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.xxl },
   backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.lg },
   eyebrow: { fontFamily: fonts.bodySemiBold, fontSize: 12, letterSpacing: 1.5, color: colors.gold, marginBottom: spacing.xs },
-  title: { fontFamily: fonts.display, fontSize: 24, color: colors.text, marginBottom: spacing.xl },
+  title: { fontFamily: fonts.display, fontSize: 24, color: colors.text, marginBottom: spacing.md },
+  reservedNotice: { flexDirection: 'row', gap: spacing.sm, backgroundColor: colors.primaryMuted, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.lg },
+  reservedNoticeText: { flex: 1, fontFamily: fonts.body, fontSize: 12, lineHeight: 17, color: colors.primary },
   fieldLabel: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.textMuted, marginBottom: 8 },
   typeRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
   typeChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   typeChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   typeChipText: { fontFamily: fonts.bodyMedium, fontSize: 13, color: colors.text },
   typeChipTextActive: { color: '#fff' },
-  switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.xl, paddingVertical: spacing.sm },
+  switchRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg, paddingVertical: spacing.sm },
   switchLabel: { fontFamily: fonts.bodyMedium, fontSize: 13.5, color: colors.text },
+  switchHint: { fontFamily: fonts.body, fontSize: 11, color: colors.textMuted, marginTop: 2 },
   deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: spacing.lg, paddingVertical: spacing.md },
   deleteText: { fontFamily: fonts.bodySemiBold, fontSize: 13.5, color: colors.danger },
 });

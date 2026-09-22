@@ -22,6 +22,7 @@ const statusMeta: Record<string, { label: string; color: string; bg: string }> =
   pending: { label: 'Pending documentation', color: colors.gold, bg: '#FBF3E4' },
   confirmed: { label: 'Confirmed', color: colors.primary, bg: colors.primaryMuted },
   active: { label: 'Active', color: colors.primary, bg: colors.primaryMuted },
+  rejected: { label: 'Rejected', color: colors.danger, bg: '#FBEAE5' },
 };
 
 const trackIcon: Record<string, keyof typeof Feather.glyphMap> = {
@@ -39,13 +40,16 @@ export default function MyAssetsScreen() {
   const fetchData = useCallback(async () => {
     if (!user) return;
 
-    const [livestockRes, equityRes, ventureRes, packagesRes, typesRes, offersRes, venturesRes] = await Promise.all([
-      supabase.from('investment_interests').select('id, package_id, status, reference_code, created_at').eq('user_id', user.id),
-      supabase.from('equity_interests').select('id, offer_id, shares_requested, amount, status, reference_code, created_at').eq('user_id', user.id),
+    const [livestockRes, equityRes, ventureRes, packagesRes, typesRes, campaignsRes, venturesRes] = await Promise.all([
+      supabase
+        .from('investment_interests')
+        .select('id, package_id, status, reference_code, created_at, snapshot_birds, snapshot_amount, snapshot_duration, snapshot_type_title')
+        .eq('user_id', user.id),
+        supabase.from('equity_interests').select('id, campaign_id, shares_requested, amount, status, reference_code, created_at').eq('user_id', user.id),
       supabase.from('venture_interests').select('id, venture_id, amount, status, reference_code, created_at').eq('user_id', user.id),
       supabase.from('investment_packages').select('*'),
       supabase.from('investment_types').select('*'),
-      supabase.from('equity_offers').select('*'),
+      supabase.from('equity_campaigns').select('*'),
       supabase.from('capital_ventures').select('*'),
     ]);
 
@@ -53,35 +57,43 @@ export default function MyAssetsScreen() {
     (packagesRes.data ?? []).forEach((p) => { packagesById[p.id] = p; });
     const typesById: Record<string, any> = {};
     (typesRes.data ?? []).forEach((t) => { typesById[t.id] = t; });
-    const offersById: Record<string, any> = {};
-    (offersRes.data ?? []).forEach((o) => { offersById[o.id] = o; });
+    const campaignsById: Record<string, any> = {};
+    (campaignsRes.data ?? []).forEach((c) => { campaignsById[c.id] = c; });
     const venturesById: Record<string, any> = {};
     (venturesRes.data ?? []).forEach((v) => { venturesById[v.id] = v; });
 
+    // Livestock: prefer the locked-in snapshot taken at reservation time.
+    // Falls back to the live package only for old rows created before snapshots existed.
     const livestock: AssetRow[] = (livestockRes.data ?? []).map((r) => {
       const pkg = packagesById[r.package_id];
       const type = pkg ? typesById[pkg.type_id] : null;
+
+      const birds = r.snapshot_birds ?? pkg?.birds;
+      const amount = r.snapshot_amount ?? pkg?.amount ?? 0;
+      const duration = r.snapshot_duration ?? pkg?.duration ?? '';
+      const typeTitle = r.snapshot_type_title ?? type?.title ?? 'Livestock Package';
+
       return {
         id: r.id,
         status: r.status,
         reference_code: r.reference_code,
         created_at: r.created_at,
-        amount: pkg?.amount ?? 0,
-        title: type?.title ?? 'Livestock Package',
-        meta: pkg ? `${pkg.birds.toLocaleString()} birds · ${pkg.duration}` : '',
+        amount,
+        title: typeTitle,
+        meta: birds ? `${birds.toLocaleString()} birds · ${duration}` : duration,
         track: 'Livestock',
       };
     });
 
     const equity: AssetRow[] = (equityRes.data ?? []).map((r) => {
-      const offer = offersById[r.offer_id];
+      const campaign = campaignsById[r.campaign_id];
       return {
         id: r.id,
         status: r.status,
         reference_code: r.reference_code,
         created_at: r.created_at,
         amount: r.amount,
-        title: offer?.title ?? 'Equity Shares',
+        title: campaign?.title ?? 'Equity Shares',
         meta: r.shares_requested > 0 ? `${r.shares_requested} shares` : 'Equity investment',
         track: 'Equity',
       };

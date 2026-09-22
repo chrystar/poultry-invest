@@ -17,16 +17,17 @@ type ActivityItem = {
   track: 'Livestock' | 'Equity' | 'Venture';
 };
 
-const categories: { icon: keyof typeof Feather.glyphMap; label: string }[] = [
-  { icon: 'feather', label: 'Livestock' },
-  { icon: 'pie-chart', label: 'Equity' },
-  { icon: 'trending-up', label: 'Ventures' },
+const categories: { icon: keyof typeof Feather.glyphMap; label: string; route: string }[] = [
+  { icon: 'feather', label: 'Livestock', route: '/(tabs)/investment' },
+  { icon: 'pie-chart', label: 'Equity', route: '/equity' },
+  { icon: 'trending-up', label: 'Ventures', route: '/ventures' },
 ];
 
 const statusIconMap: Record<string, keyof typeof Feather.glyphMap> = {
   pending: 'clock',
   confirmed: 'check-circle',
   active: 'trending-up',
+  rejected: 'x-circle',
 };
 
 const formatNaira = (n: number) => `₦${n.toLocaleString('en-NG')}`;
@@ -53,13 +54,16 @@ export default function HomeScreen() {
   const fetchData = useCallback(async () => {
     if (!user) return;
 
-    const [livestockRes, equityRes, ventureRes, packagesRes, typesRes, offersRes, venturesRes] = await Promise.all([
-      supabase.from('investment_interests').select('id, package_id, status, reference_code, created_at').eq('user_id', user.id),
-      supabase.from('equity_interests').select('id, offer_id, amount, status, reference_code, created_at').eq('user_id', user.id),
+    const [livestockRes, equityRes, ventureRes, packagesRes, typesRes, campaignsRes, venturesRes] = await Promise.all([
+      supabase
+        .from('investment_interests')
+        .select('id, package_id, status, reference_code, created_at, snapshot_birds, snapshot_amount, snapshot_duration, snapshot_type_title')
+        .eq('user_id', user.id),
+      supabase.from('equity_interests').select('id, campaign_id, amount, status, reference_code, created_at').eq('user_id', user.id),
       supabase.from('venture_interests').select('id, venture_id, amount, status, reference_code, created_at').eq('user_id', user.id),
       supabase.from('investment_packages').select('*'),
       supabase.from('investment_types').select('*'),
-      supabase.from('equity_offers').select('*'),
+      supabase.from('equity_campaigns').select('*'),
       supabase.from('capital_ventures').select('*'),
     ]);
 
@@ -67,34 +71,39 @@ export default function HomeScreen() {
     (packagesRes.data ?? []).forEach((p) => { packagesById[p.id] = p; });
     const typesById: Record<string, any> = {};
     (typesRes.data ?? []).forEach((t) => { typesById[t.id] = t; });
-    const offersById: Record<string, any> = {};
-    (offersRes.data ?? []).forEach((o) => { offersById[o.id] = o; });
+    const campaignsById: Record<string, any> = {};
+    (campaignsRes.data ?? []).forEach((o) => { campaignsById[o.id] = o; });
     const venturesById: Record<string, any> = {};
     (venturesRes.data ?? []).forEach((v) => { venturesById[v.id] = v; });
 
     const livestock: ActivityItem[] = (livestockRes.data ?? []).map((r) => {
       const pkg = packagesById[r.package_id];
       const type = pkg ? typesById[pkg.type_id] : null;
+
+      const birds = r.snapshot_birds ?? pkg?.birds;
+      const amount = r.snapshot_amount ?? pkg?.amount ?? 0;
+      const typeTitle = r.snapshot_type_title ?? type?.title ?? 'Livestock Package';
+
       return {
         id: r.id,
         status: r.status,
         reference_code: r.reference_code,
         created_at: r.created_at,
-        amount: pkg?.amount ?? 0,
-        title: pkg ? `${pkg.birds.toLocaleString()} birds` : type?.title ?? 'Livestock Package',
+        amount,
+        title: birds ? `${birds.toLocaleString()} birds` : typeTitle,
         track: 'Livestock',
       };
     });
 
     const equity: ActivityItem[] = (equityRes.data ?? []).map((r) => {
-      const offer = offersById[r.offer_id];
-      return {
+      const campaign = campaignsById[r.campaign_id];
+     return {
         id: r.id,
         status: r.status,
         reference_code: r.reference_code,
         created_at: r.created_at,
         amount: r.amount,
-        title: offer?.title ?? 'Equity Shares',
+        title: campaign?.title ?? 'Equity Shares',
         track: 'Equity',
       };
     });
@@ -209,16 +218,16 @@ export default function HomeScreen() {
         </Pressable>
 
         <Text style={styles.sectionTitle}>Invest in</Text>
-        <View style={styles.categoryRow}>
-          {categories.map((c) => (
-            <Pressable key={c.label} style={styles.categoryItem} onPress={() => router.push('/investment-track')}>
-              <View style={[styles.categoryIconWrap, shadow.card]}>
-                <Feather name={c.icon} size={20} color={colors.primary} />
-              </View>
-              <Text style={styles.categoryLabel}>{c.label}</Text>
-            </Pressable>
-          ))}
-        </View>
+<View style={styles.categoryRow}>
+  {categories.map((c) => (
+    <Pressable key={c.label} style={styles.categoryItem} onPress={() => router.push(c.route as any)}>
+      <View style={[styles.categoryIconWrap, shadow.card]}>
+        <Feather name={c.icon} size={20} color={colors.primary} />
+      </View>
+      <Text style={styles.categoryLabel}>{c.label}</Text>
+    </Pressable>
+  ))}
+</View>
 
         <Text style={styles.sectionTitle}>Recent activity</Text>
         {loading ? (

@@ -12,6 +12,7 @@ const statusMeta: Record<string, { label: string; color: string; bg: string }> =
   pending: { label: 'Pending documentation', color: colors.gold, bg: '#FBF3E4' },
   confirmed: { label: 'Confirmed', color: colors.primary, bg: colors.primaryMuted },
   active: { label: 'Active', color: colors.primary, bg: colors.primaryMuted },
+  rejected: { label: 'Rejected', color: colors.danger, bg: '#FBEAE5' },
 };
 
 function addDays(dateStr: string, days: number) {
@@ -55,8 +56,8 @@ export default function AssetDetailScreen() {
       } else if (track === 'equity') {
         const { data: interest } = await supabase.from('equity_interests').select('*').eq('id', id).single();
         if (interest) {
-          const { data: offer } = await supabase.from('equity_offers').select('*').eq('id', interest.offer_id).single();
-          setData({ interest, offer });
+          const { data: equitycampaign } = await supabase.from('equity_campaigns').select('*').eq('id', interest.campaign_id).single();
+          setData({ interest, equitycampaign });
         }
       } else if (track === 'venture') {
         const { data: interest } = await supabase.from('venture_interests').select('*').eq('id', id).single();
@@ -89,7 +90,15 @@ export default function AssetDetailScreen() {
   const { interest } = data;
   const status = statusMeta[interest.status] ?? statusMeta.pending;
 
-  // Livestock-specific batch progress
+  // Livestock figures: always prefer the locked-in snapshot from reservation time.
+  // Falls back to the live package only for old rows created before snapshots existed.
+  const displayBirds = track === 'livestock' ? interest.snapshot_birds ?? data.pkg?.birds : null;
+  const displayAmount = track === 'livestock' ? interest.snapshot_amount ?? data.pkg?.amount ?? 0 : interest.amount;
+  const displayDuration = track === 'livestock' ? interest.snapshot_duration ?? data.pkg?.duration : null;
+  const displayEstimatedProfit = track === 'livestock' ? interest.snapshot_estimated_profit ?? data.pkg?.estimated_profit : null;
+  const displayProfitShare = track === 'livestock' ? interest.snapshot_profit_share_percent ?? data.pkg?.profit_share_percent : null;
+  const displayTypeTitle = track === 'livestock' ? interest.snapshot_type_title ?? data.type?.title ?? 'Livestock' : null;
+
   let batchInfo: {
     startDate: Date;
     expectedCompletion: Date;
@@ -104,7 +113,7 @@ export default function AssetDetailScreen() {
 
   if (track === 'livestock' && interest.batch_started_at) {
     const startDate = new Date(interest.batch_started_at);
-    const totalDays = 42; // 6 weeks
+    const totalDays = 42;
     const expectedCompletion = addDays(interest.batch_started_at, totalDays);
     const now = new Date();
     const rawElapsed = Math.floor((now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
@@ -130,23 +139,33 @@ export default function AssetDetailScreen() {
           </View>
         </View>
 
-        {track === 'livestock' && data.pkg && (
+        {track === 'livestock' && (
           <>
-            <Text style={styles.eyebrow}>{data.type?.title?.toUpperCase() ?? 'LIVESTOCK'}</Text>
-            <Text style={styles.title}>{data.pkg.birds.toLocaleString()} Birds Package</Text>
+            <Text style={styles.eyebrow}>{displayTypeTitle?.toUpperCase()}</Text>
+            <Text style={styles.title}>{displayBirds ? `${displayBirds.toLocaleString()} Birds Package` : 'Livestock Package'}</Text>
           </>
         )}
-        {track === 'equity' && data.offer && (
+        {track === 'equity' && (
           <>
             <Text style={styles.eyebrow}>EQUITY STAKEHOLDER</Text>
-            <Text style={styles.title}>{data.offer.title}</Text>
+            <Text style={styles.title}>{data.offer?.title ?? 'Equity Shares'}</Text>
           </>
         )}
-        {track === 'venture' && data.venture && (
+        {track === 'venture' && (
           <>
             <Text style={styles.eyebrow}>CAPITAL VENTURE</Text>
-            <Text style={styles.title}>{data.venture.title}</Text>
+            <Text style={styles.title}>{data.venture?.title ?? 'Capital Venture'}</Text>
           </>
+        )}
+
+        {interest.status === 'rejected' && interest.rejection_note && (
+          <View style={styles.rejectedCard}>
+            <Feather name="x-circle" size={16} color={colors.danger} style={{ marginTop: 2 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rejectedTitle}>Reservation rejected</Text>
+              <Text style={styles.rejectedNote}>{interest.rejection_note}</Text>
+            </View>
+          </View>
         )}
 
         <View style={[styles.figuresCard, shadow.card]}>
@@ -157,24 +176,26 @@ export default function AssetDetailScreen() {
           <View style={styles.hairline} />
           <View style={styles.figureRow}>
             <Text style={styles.figureLabel}>Amount invested</Text>
-            <Text style={styles.figureValue}>{formatNaira(track === 'livestock' ? data.pkg?.amount ?? 0 : interest.amount)}</Text>
+            <Text style={styles.figureValue}>{formatNaira(displayAmount)}</Text>
           </View>
-          {track === 'livestock' && data.pkg && (
+          {track === 'livestock' && (
             <>
               <View style={styles.hairline} />
               <View style={styles.figureRow}>
                 <Text style={styles.figureLabel}>Estimated profit</Text>
-                <Text style={[styles.figureValue, { color: colors.gold }]}>{formatNaira(data.pkg.estimated_profit)}</Text>
+                <Text style={[styles.figureValue, { color: colors.gold }]}>
+                  {displayEstimatedProfit != null ? formatNaira(displayEstimatedProfit) : '—'}
+                </Text>
               </View>
               <View style={styles.hairline} />
               <View style={styles.figureRow}>
                 <Text style={styles.figureLabel}>Profit share</Text>
-                <Text style={styles.figureValue}>{data.pkg.profit_share_percent}%</Text>
+                <Text style={styles.figureValue}>{displayProfitShare != null ? `${displayProfitShare}%` : '—'}</Text>
               </View>
               <View style={styles.hairline} />
               <View style={styles.figureRow}>
                 <Text style={styles.figureLabel}>Cycle duration</Text>
-                <Text style={styles.figureValue}>{data.pkg.duration}</Text>
+                <Text style={styles.figureValue}>{displayDuration ?? '—'}</Text>
               </View>
             </>
           )}
@@ -185,7 +206,7 @@ export default function AssetDetailScreen() {
           </View>
         </View>
 
-        {track === 'livestock' && (
+        {track === 'livestock' && interest.status !== 'rejected' && (
           <>
             <Text style={styles.sectionTitle}>Batch progress</Text>
 
@@ -279,7 +300,10 @@ const styles = StyleSheet.create({
   statusPill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20 },
   statusText: { fontFamily: fonts.bodySemiBold, fontSize: 11.5 },
   eyebrow: { fontFamily: fonts.bodySemiBold, fontSize: 12, letterSpacing: 1.5, color: colors.gold, marginBottom: spacing.xs },
-  title: { fontFamily: fonts.display, fontSize: 24, color: colors.text, marginBottom: spacing.xl },
+  title: { fontFamily: fonts.display, fontSize: 24, color: colors.text, marginBottom: spacing.lg },
+  rejectedCard: { flexDirection: 'row', gap: spacing.sm, backgroundColor: '#FBEAE5', borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.lg },
+  rejectedTitle: { fontFamily: fonts.bodySemiBold, fontSize: 13.5, color: colors.danger, marginBottom: 3 },
+  rejectedNote: { fontFamily: fonts.body, fontSize: 12.5, lineHeight: 18, color: colors.text },
   figuresCard: { backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.xl },
   figureRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.sm },
   figureLabel: { fontFamily: fonts.body, fontSize: 13, color: colors.textMuted },

@@ -26,7 +26,8 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.RECORD_AUDIO"
-      ]
+      ],
+      "package": "com.chrisblaise.poultryinvest"
     },
     "web": {
       "output": "static",
@@ -55,7 +56,9 @@
           "cameraPermission": "Allow Poultry Invest to use the camera to capture farm photos and video.",
           "microphonePermission": "Allow Poultry Invest to record audio with farm videos."
         }
-      ]
+      ],
+      "expo-notifications"
+      
     ],
     "experiments": {
       "typedRoutes": true,

@@ -28,12 +28,24 @@ export default function RegisterScreen() {
   const handleRegister = async () => {
     if (!validate()) return;
     setLoading(true);
-    const { error } = await signUp(name.trim(), email.trim().toLowerCase(), phone.trim(), password);
+    const trimmedEmail = email.trim().toLowerCase();
+    const { error, needsConfirmation } = await signUp(name.trim(), trimmedEmail, phone.trim(), password);
     setLoading(false);
+
     if (error) {
       Alert.alert('Registration failed', error);
       return;
     }
+
+    if (needsConfirmation) {
+      // Never navigate into the app on an unconfirmed account — go to the
+      // dedicated "check your email" screen instead.
+      router.replace({ pathname: '/(auth)/verify-email', params: { email: trimmedEmail } });
+      return;
+    }
+
+    // Only reached if your Supabase project has email confirmation disabled,
+    // in which case signUp already returns a real session.
     router.replace('/(tabs)/home');
   };
 

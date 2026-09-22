@@ -5,6 +5,7 @@ import { Alert, KeyboardAvoidingView, Platform, Pressable, SafeAreaView, ScrollV
 import InputField from '../../components/InputField';
 import PrimaryButton from '../../components/PrimaryButton';
 import { colors, fonts, spacing } from '../../constants/theme';
+import { notifyUsers } from '../../lib/notifyUsers';
 import { supabase } from '../../lib/supabase';
 
 export default function BroadcastScreen() {
@@ -18,23 +19,27 @@ export default function BroadcastScreen() {
       Alert.alert('Missing fields', 'Title and message are required.');
       return;
     }
-
+  
     setSending(true);
-    const { error } = await supabase.rpc('broadcast_notification', {
-      p_title: title.trim(),
-      p_body: body.trim(),
-      p_route: route.trim() || null,
-    });
-    setSending(false);
-
-    if (error) {
-      Alert.alert('Send failed', error.message);
+    const { data: allProfiles, error: fetchError } = await supabase.from('profiles').select('id');
+  
+    if (fetchError || !allProfiles) {
+      setSending(false);
+      Alert.alert('Failed', fetchError?.message ?? 'Could not load users.');
       return;
     }
-
+  
+    await notifyUsers({
+      userIds: allProfiles.map((p) => p.id),
+      title: title.trim(),
+      body: body.trim(),
+      type: 'general',
+      route: route.trim() || null,
+    });
+    setSending(false);
+  
     Alert.alert('Sent', 'Notification broadcast to all users.', [{ text: 'OK', onPress: () => router.back() }]);
   };
-
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: colors.background }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <SafeAreaView style={{ flex: 1 }}>

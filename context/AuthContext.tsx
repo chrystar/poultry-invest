@@ -13,15 +13,18 @@ type Profile = {
   notify_general_updates?: boolean;
 };
 
+type SignUpResult = { error: string | null; needsConfirmation: boolean };
+
 type AuthContextType = {
   session: Session | null;
   user: User | null;
   profile: Profile | null;
   loading: boolean;
-  signUp: (name: string, email: string, phone: string, password: string) => Promise<{ error: string | null }>;
+  signUp: (name: string, email: string, phone: string, password: string) => Promise<SignUpResult>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  resendConfirmation: (email: string) => Promise<{ error: string | null }>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -30,7 +33,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  
 
   const fetchProfile = async (userId: string) => {
     const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
@@ -56,25 +58,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => listener.subscription.unsubscribe();
   }, []);
 
-  const signUp = async (name: string, email: string, phone: string, password: string) => {
+  // Returns needsConfirmation: true whenever Supabase created the account
+  // but withheld a session — i.e. email confirmation is required.
+  const signUp = async (name: string, email: string, phone: string, password: string): Promise<SignUpResult> => {
     const { data, error } = await supabase.auth.signUp({
       email,
-      password, 
+      password,
       options: {
         data: { full_name: name, phone },
         emailRedirectTo: 'poultryinvest://auth-callback',
       },
     });
-    if (error) return { error: error.message };
-    if (!data.user) return { error: 'Registration failed. Please try again.' };
 
-   
-    return { error: null };
+    if (error) return { error: error.message, needsConfirmation: false };
+    if (!data.user) return { error: 'Registration failed. Please try again.', needsConfirmation: false };
+
+    // No session back from signUp = confirmation email was sent and is required.
+    const needsConfirmation = !data.session;
+
+    return { error: null, needsConfirmation };
   };
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { error: error.message };
+    if (error) {
+      // Supabase's generic message is confusing when the real cause is an unconfirmed email.
+      if (error.message.toLowerCase().includes('email not confirmed')) {
+        return { error: 'Please confirm your email before signing in. Check your inbox for the confirmation link.' };
+      }
+      return { error: error.message };
+    }
     return { error: null };
   };
 
@@ -86,9 +99,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (session?.user) await fetchProfile(session.user.id);
   };
 
+  const resendConfirmation = async (email: string) => {
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email,
+      options: { emailRedirectTo: 'poultryinvest://auth-callback' },
+    });
+    if (error) return { error: error.message };
+    return { error: null };
+  };
+
   return (
     <AuthContext.Provider
-      value={{ session, user: session?.user ?? null, profile, loading, signUp, signIn, signOut, refreshProfile }}
+      value={{ session, user: session?.user ?? null, profile, loading, signUp, signIn, signOut, refreshProfile, resendConfirmation }}
     >
       {children}
     </AuthContext.Provider>

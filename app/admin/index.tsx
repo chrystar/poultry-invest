@@ -35,7 +35,7 @@ export default function AdminDashboard() {
   const manageLinks: { icon: keyof typeof Feather.glyphMap; label: string; route: string; highlight?: boolean }[] = [
     { icon: 'user-plus', label: 'Log Manual Reservation', route: '/admin/manual-reservation', highlight: true },
     { icon: 'package', label: 'Manage Livestock Packages', route: '/admin/packages' },
-    { icon: 'pie-chart', label: 'Manage Equity Offers', route: '/admin/equity-offers' },
+    { icon: 'pie-chart', label: 'Manage Equity Raises', route: '/admin/equity-campaigns' },
     { icon: 'trending-up', label: 'Manage Capital Ventures', route: '/admin/ventures' },
     { icon: 'bar-chart-2', label: 'Manage Batch Performance', route: '/admin/batches' },
     { icon: 'send', label: 'Broadcast Notification', route: '/admin/broadcast' },
