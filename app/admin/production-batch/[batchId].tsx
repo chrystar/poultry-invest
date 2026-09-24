@@ -1,13 +1,16 @@
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import PrimaryButton from '../../../components/PrimaryButton';
 import { colors, fonts, radius, shadow, spacing } from '../../../constants/theme';
+import { notifyUsers } from '../../../lib/notifyUsers';
 import { supabase } from '../../../lib/supabase';
 
 type InvestorRow = {
   interestId: string;
   reference_code: string;
+  userId: string;
   status: string;
   full_name: string;
   phone: string;
@@ -16,14 +19,57 @@ type InvestorRow = {
 
 export default function ProductionBatchDetailScreen() {
   const { batchId } = useLocalSearchParams<{ batchId: string }>();
-  const [batch, setBatch] = useState<{ label: string; start_date: string } | null>(null);
+  const [batch, setBatch] = useState<{ label: string; start_date: string; status: string } | null>(null);
   const [investors, setInvestors] = useState<InvestorRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [contactTarget, setContactTarget] = useState<InvestorRow | null>(null);
+  const [completing, setCompleting] = useState(false);
+
+  const handleMarkCompleted = () => {
+    Alert.alert(
+      'Mark this batch as completed?',
+      'This confirms the production cycle is finished. Every investor in this batch will be notified.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark completed',
+          onPress: async () => {
+            setCompleting(true);
+            const { error } = await supabase
+              .from('production_batches')
+              .update({ status: 'completed', completed_at: new Date().toISOString().slice(0, 10) })
+              .eq('id', batchId);
+  
+            if (error) {
+              setCompleting(false);
+              Alert.alert('Failed', error.message);
+              return;
+            }
+  
+            const investorIds = Array.from(new Set(investors.map((i) => i.userId)));
+  
+            if (investorIds.length > 0) {
+              await notifyUsers({
+                userIds: investorIds,
+                title: 'Your batch has been completed',
+                body: `"${batch?.label}" has finished its production cycle. Check My Assets for details.`,
+                type: 'reservation',
+                route: '/(tabs)/my-assets',
+              });
+            }
+  
+            setCompleting(false);
+            setBatch((prev) => (prev ? { ...prev, status: 'completed' } : prev));
+            Alert.alert('Marked completed', `${investorIds.length} investor${investorIds.length !== 1 ? 's' : ''} notified.`);
+          },
+        },
+      ]
+    );
+  };
 
   const load = useCallback(async () => {
     if (!batchId) return;
-    const { data: batchData } = await supabase.from('production_batches').select('label, start_date').eq('id', batchId).single();
+    const { data: batchData } = await supabase.from('production_batches').select('label, start_date, status').eq('id', batchId).single();
     setBatch(batchData);
 
     const { data: interests } = await supabase
@@ -41,6 +87,7 @@ export default function ProductionBatchDetailScreen() {
         interests.map((i) => ({
           interestId: i.id,
           reference_code: i.reference_code,
+          userId: i.user_id,
           status: i.status,
           full_name: profilesById[i.user_id]?.full_name ?? 'Unknown',
           phone: profilesById[i.user_id]?.phone ?? '',
@@ -75,6 +122,15 @@ export default function ProductionBatchDetailScreen() {
             </Text>
           </View>
         </View>
+        {batch?.status !== 'completed' ? (
+  <PrimaryButton label="Mark batch as completed" onPress={handleMarkCompleted} loading={completing} />
+) : (
+  <View style={styles.completedNotice}>
+    <Feather name="award" size={15} color={colors.primary} />
+    <Text style={styles.completedNoticeText}>This batch is completed. Investors were notified.</Text>
+  </View>
+)}
+        
 
         <Text style={styles.sectionLabel}>{investors.length} INVESTOR{investors.length !== 1 ? 'S' : ''} IN THIS BATCH</Text>
 
@@ -140,4 +196,6 @@ const styles = StyleSheet.create({
   contactBtn: { flex: 1, height: 48, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
   contactBtnTextLight: { fontFamily: fonts.bodySemiBold, fontSize: 13.5, color: '#fff' },
   contactBtnTextDark: { fontFamily: fonts.bodySemiBold, fontSize: 13.5, color: colors.primary },
+  completedNotice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.primaryMuted, borderRadius: radius.sm, padding: spacing.md, marginBottom: spacing.xl },
+completedNoticeText: { flex: 1, fontFamily: fonts.body, fontSize: 12.5, color: colors.primary },
 });

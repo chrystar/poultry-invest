@@ -31,6 +31,7 @@ export default function EquityCampaignFormScreen() {
   const [sharesSold, setSharesSold] = useState(0);
   const [loading, setLoading] = useState(isEditing);
   const [saving, setSaving] = useState(false);
+  const [completing, setCompleting] = useState(false);
 
   const totalShares = useMemo(() => {
     const amt = parseFloat(targetAmount);
@@ -67,12 +68,60 @@ export default function EquityCampaignFormScreen() {
     load();
   }, [campaignId]);
 
+  const handleMarkCompleted = () => {
+    Alert.alert(
+      'Mark this raise as completed?',
+      'This confirms the production cycle is finished. Every confirmed investor will be notified.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Mark completed',
+          onPress: async () => {
+            setCompleting(true);
+            const { error } = await supabase
+              .from('equity_campaigns')
+              .update({ status: 'completed' })
+              .eq('id', campaignId);
+  
+            if (error) {
+              setCompleting(false);
+              Alert.alert('Failed', error.message);
+              return;
+            }
+  
+            const { data: interests } = await supabase
+              .from('equity_interests')
+              .select('user_id')
+              .eq('campaign_id', campaignId)
+              .in('status', ['confirmed', 'active']);
+  
+            const investorIds = Array.from(new Set((interests ?? []).map((r) => r.user_id)));
+  
+            if (investorIds.length > 0) {
+              await notifyUsers({
+                userIds: investorIds,
+                title: 'Your raise has been completed',
+                body: `"${title}" has finished its production cycle. Check your dashboard for final figures.`,
+                type: 'general',
+                route: `/equity-campaign/${campaignId}`,
+              });
+            }
+  
+            setCompleting(false);
+            setStatus('completed');
+            Alert.alert('Marked completed', `${investorIds.length} investor${investorIds.length !== 1 ? 's' : ''} notified.`);
+          },
+        },
+      ]
+    );
+  };
+
   const handleSave = async () => {
     if (!title || !targetBirds || !targetAmount || !pricePerShare || !minShares) {
       Alert.alert('Missing fields', 'Please fill in every required field.');
       return;
     }
-
+  
     setSaving(true);
     const payload = {
       title,
@@ -84,21 +133,46 @@ export default function EquityCampaignFormScreen() {
       min_shares: parseInt(minShares, 10),
       net_profit: netProfit ? parseFloat(netProfit) : null,
     };
-
-    let error;
+  
     if (isEditing) {
-      ({ error } = await supabase.from('equity_campaigns').update(payload).eq('id', campaignId));
-    } else {
-      ({ error } = await supabase.from('equity_campaigns').insert(payload));
-    }
-    setSaving(false);
-
-    if (error) {
-      Alert.alert('Save failed', error.message);
+      const { error } = await supabase.from('equity_campaigns').update(payload).eq('id', campaignId);
+      setSaving(false);
+      if (error) {
+        Alert.alert('Save failed', error.message);
+        return;
+      }
+      router.back();
       return;
     }
+  
+    // New campaign — insert and capture its id so we can link the notification to it
+    const { data: newCampaign, error } = await supabase
+      .from('equity_campaigns')
+      .insert(payload)
+      .select('id')
+      .single();
+    setSaving(false);
+  
+    if (error || !newCampaign) {
+      Alert.alert('Save failed', error?.message ?? 'Could not create campaign.');
+      return;
+    }
+  
+    // Notify every registered user about the new raise
+    const { data: allProfiles } = await supabase.from('profiles').select('id');
+    if (allProfiles && allProfiles.length > 0) {
+      await notifyUsers({
+        userIds: allProfiles.map((p) => p.id),
+        title: 'New equity raise open',
+        body: `"${title}" is now open for investment — ${totalShares.toLocaleString()} shares at ₦${parseFloat(pricePerShare).toLocaleString('en-NG')} each.`,
+        type: 'general',
+        route: `/equity-campaign/${newCampaign.id}`,
+      });
+    }
+  
     router.back();
   };
+
 
   const handleStartBatch = async () => {
     Alert.alert('Start this batch?', `This confirms funding is complete and sets the batch start date to ${toDateOnlyString(batchDate)}.`, [
@@ -246,4 +320,5 @@ const styles = StyleSheet.create({
   dateButtonText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.text },
   activeNotice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.primaryMuted, borderRadius: radius.sm, padding: spacing.md, marginTop: spacing.xl },
   activeNoticeText: { flex: 1, fontFamily: fonts.body, fontSize: 12.5, color: colors.primary },
+  completedNotice: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.primaryMuted, borderRadius: radius.sm, padding: spacing.md, marginTop: spacing.xl },
 });

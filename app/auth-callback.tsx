@@ -1,50 +1,87 @@
 import * as Linking from 'expo-linking';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, SafeAreaView, StyleSheet, Text } from 'react-native';
 import { colors, fonts, spacing } from '../constants/theme';
 import { parseAuthParams } from '../lib/parseAuthDeepLink';
 import { supabase } from '../lib/supabase';
 
 export default function AuthCallbackScreen() {
+  const params = useLocalSearchParams<{
+    code?: string;
+    access_token?: string;
+    refresh_token?: string;
+    error_description?: string;
+  }>();
+  const currentUrl = Linking.useURL(); // reactive, doesn't fight the router
   const [error, setError] = useState<string | null>(null);
+  const handled = useRef(false);
 
   useEffect(() => {
-    const handleUrl = async (url: string | null) => {
-      if (!url) return;
+    if (handled.current) return;
 
-      const { access_token, refresh_token, error: linkError } = parseAuthParams(url);
-
-      const codeMatch = url.match(/[?&]code=([^&]+)/);
-      if (codeMatch) {
-        const { error: exchangeErr } = await supabase.auth.exchangeCodeForSession(codeMatch[1]);
-        if (exchangeErr) {
-          setError(exchangeErr.message);
-          return;
-        }
+    const resolve = async () => {
+      // 1. Query-param based (PKCE / some verify redirects)
+      if (params.error_description) {
+        handled.current = true;
+        setError(params.error_description);
+        return;
+      }
+      if (params.code) {
+        handled.current = true;
+        const { error: exchangeErr } = await supabase.auth.exchangeCodeForSession(params.code);
+        if (exchangeErr) { setError(exchangeErr.message); return; }
+        router.replace('/(tabs)/home');
+        return;
+      }
+      if (params.access_token && params.refresh_token) {
+        handled.current = true;
+        const { error: sessionErr } = await supabase.auth.setSession({
+          access_token: params.access_token,
+          refresh_token: params.refresh_token,
+        });
+        if (sessionErr) { setError(sessionErr.message); return; }
         router.replace('/(tabs)/home');
         return;
       }
 
-      if (linkError) {
-        setError(linkError);
-        return;
-      }
+      // 2. Hash-fragment based (implicit flow) — read from the raw URL directly
+      if (currentUrl) {
+        const { access_token, refresh_token, error: linkError } = parseAuthParams(currentUrl);
 
-      if (access_token && refresh_token) {
-        const { error: sessionErr } = await supabase.auth.setSession({ access_token, refresh_token });
-        if (sessionErr) {
-          setError(sessionErr.message);
+        if (linkError) {
+          handled.current = true;
+          setError(linkError);
+          return;
+        }
+        if (access_token && refresh_token) {
+          handled.current = true;
+          const { error: sessionErr } = await supabase.auth.setSession({ access_token, refresh_token });
+          if (sessionErr) { setError(sessionErr.message); return; }
+          router.replace('/(tabs)/home');
           return;
         }
       }
 
-      router.replace('/(tabs)/home');
+      // 3. Neither format present yet — check if the account is already confirmed
+      // (Supabase confirms server-side before redirecting, so a session may already exist)
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        handled.current = true;
+        router.replace('/(tabs)/home');
+      }
     };
 
-    Linking.getInitialURL().then(handleUrl);
-    const subscription = Linking.addEventListener('url', ({ url }) => handleUrl(url));
-    return () => subscription.remove();
+    resolve();
+  }, [params, currentUrl]);
+
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (!handled.current) {
+        setError('This link could not be verified automatically. Your email may already be confirmed — try signing in.');
+      }
+    }, 8000);
+    return () => clearTimeout(timeout);
   }, []);
 
   return (

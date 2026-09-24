@@ -31,23 +31,21 @@ export function useEquityCampaigns() {
   const fetch = useCallback(async () => {
     setLoading(true);
     const { data: campaignRows } = await supabase.from('equity_campaigns').select('*').order('created_at', { ascending: false });
-    const { data: interestRows } = await supabase
-      .from('equity_interests')
-      .select('campaign_id, shares_requested, user_id, status')
-      .in('status', ['confirmed', 'active']);
 
     const progress: Record<string, CampaignProgress> = {};
-    (campaignRows ?? []).forEach((c) => {
-      const rows = (interestRows ?? []).filter((r) => r.campaign_id === c.id);
-      const sharesSold = rows.reduce((sum, r) => sum + r.shares_requested, 0);
-      const investorCount = new Set(rows.map((r) => r.user_id)).size;
-      progress[c.id] = {
-        sharesSold,
-        investorCount,
-        sharesRemaining: Math.max(0, c.total_shares - sharesSold),
-        percentFunded: c.total_shares > 0 ? Math.min(1, sharesSold / c.total_shares) : 0,
-      };
-    });
+    await Promise.all(
+      (campaignRows ?? []).map(async (c) => {
+        const { data } = await supabase.rpc('get_campaign_progress', { p_campaign_id: c.id });
+        const sharesSold = data?.[0] ? Number(data[0].shares_sold) : 0;
+        const investorCount = data?.[0] ? Number(data[0].investor_count) : 0;
+        progress[c.id] = {
+          sharesSold,
+          investorCount,
+          sharesRemaining: Math.max(0, c.total_shares - sharesSold),
+          percentFunded: c.total_shares > 0 ? Math.min(1, sharesSold / c.total_shares) : 0,
+        };
+      })
+    );
 
     setCampaigns((campaignRows ?? []) as EquityCampaign[]);
     setProgressById(progress);

@@ -1,12 +1,13 @@
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import PrimaryButton from '../../components/PrimaryButton';
 import { colors, fonts, radius, shadow, spacing } from '../../constants/theme';
 import { notifyUsers } from '../../lib/notifyUsers';
 import { supabase } from '../../lib/supabase';
+
 
 
 type ReservationRow = {
@@ -91,56 +92,59 @@ export default function ReservationsScreen() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showGroupSheet, setShowGroupSheet] = useState(false);
-const [groupLabel, setGroupLabel] = useState('');
-const [groupDate, setGroupDate] = useState(new Date());
-const [showGroupDatePicker, setShowGroupDatePicker] = useState(false);
-const [creatingGroup, setCreatingGroup] = useState(false);
+  const [groupLabel, setGroupLabel] = useState('');
+  const [groupDate, setGroupDate] = useState(new Date());
+  const [showGroupDatePicker, setShowGroupDatePicker] = useState(false);
+  const [creatingGroup, setCreatingGroup] = useState(false);
 
-const createBatchGroup = async () => {
-  if (!groupLabel.trim()) {
-    Alert.alert('Name this batch', 'Give the batch a label so you can find it later.');
-    return;
-  }
-  setCreatingGroup(true);
+  const createBatchGroup = async () => {
+    if (!groupLabel.trim()) {
+      Alert.alert('Name this batch', 'Give the batch a label so you can find it later.');
+      return;
+    }
+    setCreatingGroup(true);
 
-  const { data: newBatch, error: batchError } = await supabase
-    .from('production_batches')
-    .insert({ label: groupLabel.trim(), start_date: toDateOnlyString(groupDate) })
-    .select('id')
-    .single();
+    const { data: newBatch, error: batchError } = await supabase
+      .from('production_batches')
+      .insert({ label: groupLabel.trim(), start_date: toDateOnlyString(groupDate) })
+      .select('id')
+      .single();
 
-  if (batchError || !newBatch) {
+    if (batchError || !newBatch) {
+      setCreatingGroup(false);
+      Alert.alert('Failed to create batch', batchError?.message ?? 'Unknown error');
+      return;
+    }
+
+    const idsArray = Array.from(selectedIds);
+    const { error: updateError } = await supabase
+      .from('investment_interests')
+      .update({ batch_id: newBatch.id })
+      .in('id', idsArray);
+
     setCreatingGroup(false);
-    Alert.alert('Failed to create batch', batchError?.message ?? 'Unknown error');
-    return;
-  }
 
-  const idsArray = Array.from(selectedIds);
-  const { error: updateError } = await supabase
-    .from('investment_interests')
-    .update({ batch_id: newBatch.id })
-    .in('id', idsArray);
+    if (updateError) {
+      Alert.alert('Batch created, but assigning investors failed', updateError.message);
+      return;
+    }
 
-  setCreatingGroup(false);
-
-  if (updateError) {
-    Alert.alert('Batch created, but assigning investors failed', updateError.message);
-    return;
-  }
-
-  Alert.alert('Batch created', `${idsArray.length} investor(s) grouped into "${groupLabel.trim()}".`);
-  setShowGroupSheet(false);
-  setGroupLabel('');
-  setSelectMode(false);
-  setSelectedIds(new Set());
-  fetchAll();
-};
+    Alert.alert('Batch created', `${idsArray.length} investor(s) grouped into "${groupLabel.trim()}".`);
+    setShowGroupSheet(false);
+    setGroupLabel('');
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    fetchAll();
+  };
 
   const [rejectTarget, setRejectTarget] = useState<ReservationRow | null>(null);
   const [rejectNote, setRejectNote] = useState('');
   const [rejecting, setRejecting] = useState(false);
 
   const [contactTarget, setContactTarget] = useState<ReservationRow | null>(null);
+const [reviewTarget, setReviewTarget] = useState<ReservationRow | null>(null);
+const [reviewDetails, setReviewDetails] = useState<any>(null);
+const [reviewLoading, setReviewLoading] = useState(false);
 
   const fetchAll = useCallback(async () => {
     const [livestock, equity, ventures] = await Promise.all([
@@ -207,7 +211,7 @@ const createBatchGroup = async () => {
       Alert.alert('Update failed', error.message);
       return;
     }
-  
+
     await notifyUsers({
       userIds: [row.user_id],
       title: newStatus === 'confirmed' ? 'Reservation confirmed' : 'Reservation update',
@@ -215,16 +219,51 @@ const createBatchGroup = async () => {
       type: 'reservation',
       route: '/(tabs)/my-assets',
     });
-  
+
     fetchAll();
   };
 
-  const reviewPendingReservation = (row: ReservationRow) => {
-    Alert.alert('Review reservation', `What would you like to do with ${row.reference_code}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Reject', style: 'destructive', onPress: () => { setRejectTarget(row); setRejectNote(''); } },
-      { text: 'Confirm', onPress: () => updateStatus(row, 'confirmed') },
-    ]);
+  const openReview = async (row: ReservationRow) => {
+    setReviewTarget(row);
+    setReviewDetails(null);
+    setReviewLoading(true);
+
+    if (row.source === 'Livestock') {
+      const { data: interest } = await supabase
+        .from('investment_interests')
+        .select('snapshot_birds, snapshot_amount, snapshot_duration, snapshot_type_title')
+        .eq('id', row.id)
+        .single();
+      setReviewDetails({
+        type: 'Livestock',
+        title: interest?.snapshot_type_title ?? 'Livestock Package',
+        birds: interest?.snapshot_birds,
+        duration: interest?.snapshot_duration,
+        amount: interest?.snapshot_amount ?? 0,
+      });
+    } else if (row.source === 'Equity') {
+      const { data: interest } = await supabase
+        .from('equity_interests')
+        .select('shares_requested, amount, campaign_id')
+        .eq('id', row.id)
+        .single();
+      let campaignTitle = 'Equity Shares';
+      if (interest?.campaign_id) {
+        const { data: campaign } = await supabase.from('equity_campaigns').select('title').eq('id', interest.campaign_id).single();
+        campaignTitle = campaign?.title ?? campaignTitle;
+      }
+      setReviewDetails({ type: 'Equity', title: campaignTitle, shares: interest?.shares_requested, amount: interest?.amount ?? 0 });
+    } else {
+      const { data: interest } = await supabase.from('venture_interests').select('amount, venture_id').eq('id', row.id).single();
+      let ventureTitle = 'Capital Venture';
+      if (interest?.venture_id) {
+        const { data: venture } = await supabase.from('capital_ventures').select('title').eq('id', interest.venture_id).single();
+        ventureTitle = venture?.title ?? ventureTitle;
+      }
+      setReviewDetails({ type: 'Venture', title: ventureTitle, amount: interest?.amount ?? 0 });
+    }
+
+    setReviewLoading(false);
   };
 
   const submitRejection = async () => {
@@ -233,19 +272,19 @@ const createBatchGroup = async () => {
       Alert.alert('Add a reason', 'Please explain why this reservation is being rejected — the investor will see this note.');
       return;
     }
-  
+
     setRejecting(true);
     const { error } = await supabase
       .from(rejectTarget.table)
       .update({ status: 'rejected', rejection_note: rejectNote.trim() })
       .eq('id', rejectTarget.id);
     setRejecting(false);
-  
+
     if (error) {
       Alert.alert('Failed', error.message);
       return;
     }
-  
+
     await notifyUsers({
       userIds: [rejectTarget.user_id],
       title: 'Reservation rejected',
@@ -253,7 +292,7 @@ const createBatchGroup = async () => {
       type: 'reservation',
       route: '/(tabs)/my-assets',
     });
-  
+
     setRejectTarget(null);
     setRejectNote('');
     fetchAll();
@@ -272,7 +311,7 @@ const createBatchGroup = async () => {
       return next;
     });
   };
-  
+
 
   // const handleBulkDateChange = (event: any, selectedDate?: Date) => {
   //   if (Platform.OS === 'android') {
@@ -286,7 +325,7 @@ const createBatchGroup = async () => {
   //   if (selectedDate) setBulkDate(selectedDate);
   // };
 
-  
+
 
 
   const applyBulkBatchDateWithDate = async (d: Date) => {
@@ -309,7 +348,7 @@ const createBatchGroup = async () => {
       return;
     }
     if (row.status === 'pending') {
-      reviewPendingReservation(row);
+      openReview(row);
     } else if (row.status !== 'rejected' && row.source === 'Livestock') {
       router.push({
         pathname: '/admin/set-batch-date',
@@ -326,8 +365,8 @@ const createBatchGroup = async () => {
         </Pressable>
         <Text style={styles.headerTitle}>Reservations</Text>
         <Pressable onPress={() => router.push('/admin/production-batches')} style={styles.iconToggle}>
-  <Feather name="users" size={15} color={colors.primary} />
-</Pressable>
+          <Feather name="users" size={15} color={colors.primary} />
+        </Pressable>
         <View style={styles.headerActions}>
           <Pressable onPress={() => setViewMode(viewMode === 'list' ? 'table' : 'list')} style={styles.iconToggle}>
             <Feather name={viewMode === 'list' ? 'grid' : 'list'} size={15} color={colors.primary} />
@@ -440,50 +479,50 @@ const createBatchGroup = async () => {
       </ScrollView>
 
       {selectMode && selectedIds.size > 0 && (
-  <View style={[styles.bulkBar, shadow.raised]}>
-    <Text style={styles.bulkBarText}>{selectedIds.size} selected</Text>
-    <Pressable style={styles.bulkBarBtn} onPress={() => setShowGroupSheet(true)}>
-      <Feather name="users" size={14} color="#fff" />
-      <Text style={styles.bulkBarBtnText}>Group into batch</Text>
-    </Pressable>
-  </View>
-)}
-
-{showGroupSheet && (
-  <View style={styles.sheetOverlay}>
-    <Pressable style={StyleSheet.absoluteFill} onPress={() => { Keyboard.dismiss(); setShowGroupSheet(false); }} />
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetKeyboardWrap}>
-      <View style={styles.sheet}>
-        <View style={styles.sheetHandle} />
-        <Text style={styles.sheetTitle}>Group {selectedIds.size} into a batch</Text>
-        <Text style={styles.sheetSubtitle}>Name this batch and set its start date.</Text>
-        <TextInput
-          style={styles.groupLabelInput}
-          placeholder="e.g. Batch A — September 2026"
-          placeholderTextColor={colors.textFaint}
-          value={groupLabel}
-          onChangeText={setGroupLabel}
-        />
-        <Pressable style={styles.dateButton} onPress={() => setShowGroupDatePicker(true)}>
-          <Feather name="calendar" size={15} color={colors.primary} />
-          <Text style={styles.dateButtonText}>{toDateOnlyString(groupDate)}</Text>
-        </Pressable>
-        {showGroupDatePicker && (
-          <DateTimePicker
-            value={groupDate}
-            mode="date"
-            display={Platform.OS === 'ios' ? 'inline' : 'default'}
-            onChange={(e, d) => { if (Platform.OS === 'android') setShowGroupDatePicker(false); if (d) setGroupDate(d); }}
-            themeVariant="light"
-          />
-        )}
-        <View style={{ marginTop: spacing.lg }}>
-          <PrimaryButton label="Create batch & assign" onPress={createBatchGroup} loading={creatingGroup} />
+        <View style={[styles.bulkBar, shadow.raised]}>
+          <Text style={styles.bulkBarText}>{selectedIds.size} selected</Text>
+          <Pressable style={styles.bulkBarBtn} onPress={() => setShowGroupSheet(true)}>
+            <Feather name="users" size={14} color="#fff" />
+            <Text style={styles.bulkBarBtnText}>Group into batch</Text>
+          </Pressable>
         </View>
-      </View>
-    </KeyboardAvoidingView>
-  </View>
-)}
+      )}
+
+      {showGroupSheet && (
+        <View style={styles.sheetOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => { Keyboard.dismiss(); setShowGroupSheet(false); }} />
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetKeyboardWrap}>
+            <View style={styles.sheet}>
+              <View style={styles.sheetHandle} />
+              <Text style={styles.sheetTitle}>Group {selectedIds.size} into a batch</Text>
+              <Text style={styles.sheetSubtitle}>Name this batch and set its start date.</Text>
+              <TextInput
+                style={styles.groupLabelInput}
+                placeholder="e.g. Batch A — September 2026"
+                placeholderTextColor={colors.textFaint}
+                value={groupLabel}
+                onChangeText={setGroupLabel}
+              />
+              <Pressable style={styles.dateButton} onPress={() => setShowGroupDatePicker(true)}>
+                <Feather name="calendar" size={15} color={colors.primary} />
+                <Text style={styles.dateButtonText}>{toDateOnlyString(groupDate)}</Text>
+              </Pressable>
+              {showGroupDatePicker && (
+                <DateTimePicker
+                  value={groupDate}
+                  mode="date"
+                  display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                  onChange={(e, d) => { if (Platform.OS === 'android') setShowGroupDatePicker(false); if (d) setGroupDate(d); }}
+                  themeVariant="light"
+                />
+              )}
+              <View style={{ marginTop: spacing.lg }}>
+                <PrimaryButton label="Create batch & assign" onPress={createBatchGroup} loading={creatingGroup} />
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      )}
 
       {/* Reject sheet */}
       {rejectTarget && (
@@ -515,6 +554,82 @@ const createBatchGroup = async () => {
               <PrimaryButton label="Reject reservation" onPress={submitRejection} loading={rejecting} />
             </View>
           </KeyboardAvoidingView>
+        </View>
+      )}
+
+      {reviewTarget && (
+        <View style={styles.sheetOverlay}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setReviewTarget(null)} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Review {reviewTarget.reference_code}</Text>
+
+            <View style={styles.contactCard}>
+              <View style={styles.contactAvatar}>
+                <Text style={styles.contactAvatarText}>
+                  {reviewTarget.investor?.full_name?.charAt(0).toUpperCase() ?? '?'}
+                </Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.contactName}>{reviewTarget.investor?.full_name || 'Unnamed investor'}</Text>
+                <Text style={styles.contactMeta}>{reviewTarget.investor?.phone || 'No phone on file'}</Text>
+              </View>
+            </View>
+
+            {reviewLoading ? (
+              <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} />
+            ) : reviewDetails && (
+              <View style={styles.reviewCard}>
+                <Text style={styles.reviewCardTitle}>{reviewDetails.title}</Text>
+                {reviewDetails.type === 'Livestock' && (
+                  <>
+                    <View style={styles.reviewRow}>
+                      <Text style={styles.reviewLabel}>Birds</Text>
+                      <Text style={styles.reviewValue}>{reviewDetails.birds?.toLocaleString() ?? '—'}</Text>
+                    </View>
+                    <View style={styles.reviewRow}>
+                      <Text style={styles.reviewLabel}>Duration</Text>
+                      <Text style={styles.reviewValue}>{reviewDetails.duration ?? '—'}</Text>
+                    </View>
+                  </>
+                )}
+                {reviewDetails.type === 'Equity' && (
+                  <View style={styles.reviewRow}>
+                    <Text style={styles.reviewLabel}>Shares</Text>
+                    <Text style={styles.reviewValue}>{reviewDetails.shares?.toLocaleString() ?? '—'}</Text>
+                  </View>
+                )}
+                <View style={styles.reviewRow}>
+                  <Text style={styles.reviewLabel}>Amount</Text>
+                  <Text style={[styles.reviewValue, { color: colors.gold }]}>₦{(reviewDetails.amount ?? 0).toLocaleString('en-NG')}</Text>
+                </View>
+              </View>
+            )}
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
+              <View style={{ flex: 1 }}>
+                <PrimaryButton
+                  label="Reject"
+                  variant="outline"
+                  onPress={() => {
+                    const target = reviewTarget;
+                    setReviewTarget(null);
+                    setRejectTarget(target);
+                    setRejectNote('');
+                  }}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <PrimaryButton
+                  label="Confirm"
+                  onPress={() => {
+                    updateStatus(reviewTarget, 'confirmed');
+                    setReviewTarget(null);
+                  }}
+                />
+              </View>
+            </View>
+          </View>
         </View>
       )}
 
@@ -650,4 +765,9 @@ const styles = StyleSheet.create({
     padding: spacing.md, backgroundColor: colors.surface,
   },
   dateButtonText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.text },
+  reviewCard: { backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.md },
+  reviewCardTitle: { fontFamily: fonts.bodySemiBold, fontSize: 14, color: colors.text, marginBottom: spacing.sm },
+  reviewRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.xs },
+  reviewLabel: { fontFamily: fonts.body, fontSize: 13, color: colors.textMuted },
+  reviewValue: { fontFamily: fonts.bodyBold, fontSize: 13.5, color: colors.text },
 });

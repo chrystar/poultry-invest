@@ -49,12 +49,12 @@ export default function AdminEquityCampaignsScreen() {
                 </Text>
                 {c.status === 'active' && (
                   <Pressable
-                    style={styles.mediaLink}
-                    onPress={(e) => { e.stopPropagation(); router.push({ pathname: '/admin/equity-campaign-media', params: { campaignId: c.id, title: c.title } }); }}
-                  >
-                    <Feather name="image" size={13} color={colors.primary} />
-                    <Text style={styles.mediaLinkText}>Manage media updates</Text>
-                  </Pressable>
+                  style={styles.mediaLink}
+                  onPress={(e) => { e.stopPropagation(); router.push(`/admin/equity-investors/${c.id}`); }}
+                >
+                  <Feather name="users" size={13} color={colors.primary} />
+                  <Text style={styles.mediaLinkText}>View investors</Text>
+                </Pressable>
                 )}
               </Pressable>
             );

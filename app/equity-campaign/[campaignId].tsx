@@ -24,16 +24,23 @@ export default function EquityCampaignDetailScreen() {
   const load = async () => {
     const { data: c } = await supabase.from('equity_campaigns').select('*').eq('id', campaignId).single();
     setCampaign(c);
-
-    const { data: interests } = await supabase
-      .from('equity_interests')
-      .select('shares_requested, user_id, status')
-      .eq('campaign_id', campaignId)
-      .in('status', ['confirmed', 'active']);
-
-    setSharesSold((interests ?? []).reduce((s, r) => s + r.shares_requested, 0));
-    setInvestorCount(new Set((interests ?? []).map((r) => r.user_id)).size);
-    setMyShares((interests ?? []).filter((r) => r.user_id === user?.id).reduce((s, r) => s + r.shares_requested, 0));
+  
+    const { data: progress } = await supabase.rpc('get_campaign_progress', { p_campaign_id: campaignId });
+    if (progress && progress[0]) {
+      setSharesSold(Number(progress[0].shares_sold));
+      setInvestorCount(Number(progress[0].investor_count));
+    }
+  
+    if (user) {
+      const { data: myInterests } = await supabase
+        .from('equity_interests')
+        .select('shares_requested')
+        .eq('campaign_id', campaignId)
+        .eq('user_id', user.id)
+        .in('status', ['confirmed', 'active']);
+      setMyShares((myInterests ?? []).reduce((s, r) => s + r.shares_requested, 0));
+    }
+  
     setLoading(false);
   };
 

@@ -1,55 +1,78 @@
-import * as Linking from 'expo-linking';
-import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import InputField from '../components/InputField';
 import PrimaryButton from '../components/PrimaryButton';
 import { colors, fonts, spacing } from '../constants/theme';
-import { parseAuthParams } from '../lib/parseAuthDeepLink';
 import { supabase } from '../lib/supabase';
 
 export default function ResetPasswordScreen() {
+  const params = useLocalSearchParams<{
+    code?: string;
+    access_token?: string;
+    refresh_token?: string;
+    error_description?: string;
+  }>();
   const [verifying, setVerifying] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [saving, setSaving] = useState(false);
+  const handled = useRef(false);
 
   useEffect(() => {
-    const handleUrl = async (url: string | null) => {
-      if (!url) {
-        setSessionError('This reset link is missing or invalid.');
+    if (handled.current) return;
+    handled.current = true;
+
+    const resolve = async () => {
+      if (params.error_description) {
+        setSessionError(params.error_description);
         setVerifying(false);
         return;
       }
 
-      const { access_token, refresh_token, error } = parseAuthParams(url);
-
-      if (error) {
-        setSessionError(error);
-        setVerifying(false);
-        return;
-      }
-      if (!access_token || !refresh_token) {
-        setSessionError('This reset link is invalid or has expired. Please request a new one.');
-        setVerifying(false);
-        return;
-      }
-
-      const { error: sessionErr } = await supabase.auth.setSession({ access_token, refresh_token });
-      if (sessionErr) {
-        setSessionError(sessionErr.message);
+      // PKCE flow — Supabase sends ?code=xxxx
+      if (params.code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(params.code);
+        if (error) {
+          setSessionError(error.message);
+          setVerifying(false);
+          return;
+        }
         setVerifying(false);
         return;
       }
 
+      // Implicit flow — Supabase sends #access_token=xxx&refresh_token=xxx
+      if (params.access_token && params.refresh_token) {
+        const { error } = await supabase.auth.setSession({
+          access_token: params.access_token,
+          refresh_token: params.refresh_token,
+        });
+        if (error) {
+          setSessionError(error.message);
+          setVerifying(false);
+          return;
+        }
+        setVerifying(false);
+        return;
+      }
+
+      setSessionError('This reset link is invalid or has expired. Please request a new one.');
       setVerifying(false);
     };
 
-    Linking.getInitialURL().then(handleUrl);
-    const subscription = Linking.addEventListener('url', ({ url }) => handleUrl(url));
-    return () => subscription.remove();
-  }, []);
+    resolve();
+
+    const timeout = setTimeout(() => {
+      setVerifying((prev) => {
+        if (prev) setSessionError('This is taking longer than expected. Please request a new reset link.');
+        return false;
+      });
+    }, 10000);
+
+    return () => clearTimeout(timeout);
+  }, [params]);
 
   const handleSave = async () => {
     if (password.length < 8) {
